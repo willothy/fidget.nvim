@@ -30,12 +30,12 @@ fidgets.SpinnerFidget = SpinnerFidget
 
 SpinnerFidget.class = "spinner"
 
-function SpinnerFidget:render(children)
+function SpinnerFidget:render(inputs)
   local complete = false
-  if next(children) then
+  if next(inputs) then
     complete = true
-    for _, child in pairs(children) do
-      complete = complete and child.complete
+    for _, input in pairs(inputs) do
+      complete = complete and input.complete
     end
   end
 

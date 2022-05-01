@@ -37,15 +37,15 @@ M.ClientFidget = ClientFidget
 
 ClientFidget.class = "lsp-progress"
 
-function ClientFidget:render(children)
+function ClientFidget:render(inputs)
   local output = {}
   output.title = self.name
   output.complete = true
 
   local messages = {}
-  for _, child in pairs(children) do
-    table.insert(messages, child.message)
-    output.complete = output.complete and child.complete
+  for _, input in pairs(inputs) do
+    table.insert(messages, input.message)
+    output.complete = output.complete and input.complete
   end
   output.body = vim.fn.join(messages, "\n")
 

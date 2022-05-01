@@ -1,3 +1,4 @@
+-- TODO: refactor terminology in terms of flow graph
 local M = {}
 
 local sched = require("fidget.core.sched")
@@ -8,8 +9,8 @@ local do_destroy
 ---@class FidgetOutput
 --- The data produced by a Fidget
 
----@alias FidgetChild Fidget|function()->FidgetOutput|FidgetOutput
---- A Fidget may have non-Fidget children, e.g., functions or unchanging plain data.
+---@alias FidgetInbound Fidget|function()->FidgetOutput|FidgetOutput
+--- A Fidget may have non-Fidget inbound, e.g., functions or unchanging plain data.
 --- TODO: if a Fidget "evaluates" to nil, then it is automatically destroyed.
 
 ---@alias FidgetSchedState "render"|"destroy"|false
@@ -18,17 +19,17 @@ local do_destroy
 ---@alias FidgetMethod function(Fidget)
 
 ---@class Fidget
---- A Fidget is a hierarchical UI component encapsulating some local state,
---- organized in a forest of Fidgets. Fidgets are equipped with a render method
---- used to produce some kind of output data from that state and the rendered
---- output of their children.
+--- A Fidget is a UI model component encapsulating some local state, organized
+--- in an acyclic flow network of Fidgets. Fidgets are equipped with a render
+--- method used to produce some kind of output data from that state and the
+--- rendered output of their inbound.
 ---
 ---@field class string: class identifier of Fidget instance
 ---@field render FidgetRender: method to render output (required)
 ---@field initialize FidgetMethod: method to initialize a fidget (optional)
 ---@field destroy FidgetMethod: method to cleanup fidget (optional)
----@field children table[any]FidgetChild: children of this Fidget
----@field _parent Fidget|false: optional parent of this Fidget
+---@field inbound table[any]FidgetInbound: inbound peers of this Fidget
+---@field _outbound table[Fidget]true: outbound peers of this Fidget
 ---@field _scheduled FidgetSchedState: what this Fidget is scheduled to do
 ---@field _output FidgetOutput: cached result of render
 local Fidget = {}
@@ -52,11 +53,11 @@ function Fidget:new(obj)
   obj = obj or {}
 
   obj = vim.tbl_extend("keep", obj, {
-    children = {},
+    inbound = {},
   })
   obj = vim.tbl_extend("error", obj, {
     -- Internal fields
-    _parent = false,
+    _outbound = {},
     _scheduled = false,
     _output = "unrendered data", -- This dummy value will get overwritten.
   })
@@ -64,9 +65,9 @@ function Fidget:new(obj)
   setmetatable(obj, self)
   assert(type(obj.render) == "function", "render method is required")
 
-  for _, child in pairs(obj.children) do
-    if type(child) == "table" then
-      child._parent = obj
+  for _, ib in pairs(obj.inbound) do
+    if type(ib) == "table" then
+      ib:add_outbound(obj)
     end
   end
 
@@ -98,11 +99,17 @@ function Fidget:schedule_render()
 
   self._scheduled = "render"
 
-  if self._parent then
-    self._parent:schedule_render()
+  if not self:is_sink() then
+    self:schedule_outbound()
   else
     sched.method(self, do_render)
   end
+end
+
+function Fidget:schedule_outbound()
+    for ob, _ in pairs(self._outbound) do
+      ob:schedule_render()
+    end
 end
 
 --- Schedule a Fidget to be destroyed soon.
@@ -115,47 +122,55 @@ end
 function Fidget:schedule_destroy()
   self._scheduled = "destroy"
 
-  if self._parent then
-    self._parent:schedule_render()
+  if not self:is_sink() then
+    self:schedule_outbound()
   else
     sched.method(self, do_destroy)
   end
 end
 
---- Whether a Fidget is at the root of a Fidget tree, i.e., has no parent.
+--- Whether a Fidget has no outbound nodes.
 ---@return boolean
-function Fidget:is_root()
-  return self._parent == nil
+function Fidget:is_sink()
+  return next(self._outbound) == nil
 end
 
---- Whether a Fidget is a leaf in a Fidget tree, i.e., has no children.
+--- Whether a Fidget has no inbound nodes.
 ---@return boolean
-function Fidget:is_leaf()
-  return next(self.children) == nil
+function Fidget:is_tap()
+  return next(self.inbound) == nil
 end
 
---- Retrieve child node at given index.
+function Fidget:add_outbound(ob)
+  self._outbound[ob] = true
+end
+
+function Fidget:remove_outbound(ob)
+  self._outbound[ob] = false
+end
+
+--- Retrieve inbound node at given index.
 ---
 ---@param k any: given index
----@return FidgetChild
+---@return FidgetInbound
 function Fidget:get(k)
-  return self.children[k]
+  return self.inbound[k]
 end
 
---- Set child node at given index.
+--- Set inbound node at given index.
 ---
---- If a child previously existed at that key, it is destroyed.
+--- If a node previously existed at that key, it is destroyed.
 ---
---- The parent is scheduled for rendering.
+--- The ob is scheduled for rendering.
 ---
 ---@param k any: given index
----@param child FidgetChild|nil: optional child node
-function Fidget:set(k, child)
-  local old = self.children[k]
+---@param ib FidgetInbound|nil: optional ib node
+function Fidget:set(k, ib)
+  local old = self.inbound[k]
 
-  self.children[k] = child
-  if type(child) == "table" then
-    child._parent = self
+  self.inbound[k] = ib
+  if type(ib) == "table" then
+    ib:add_outbound(self)
   end
 
   if type(old) == "table" then
@@ -167,32 +182,32 @@ end
 
 --- Add a child node, like table.insert().
 ---
---- Sets self as parent of inserted child if child is a Fidget.
+--- Sets self as ob of inserted child if child is a Fidget.
 ---
---- The parent is scheduled for rendering.
+--- The ob is scheduled for rendering.
 ---
 ---@param idx number: where child should be inserted
----@param child FidgetChild: the child to be inserted
----@overload fun(self, child: FidgetChild)
+---@param child FidgetInbound: the child to be inserted
+---@overload fun(self, child: FidgetInbound)
 function Fidget:insert(idx, child)
-  table.insert(self.children, idx, child)
+  table.insert(self.inbound, idx, child)
   if type(child) == "table" then
-    child._parent = self
+    child:add_outbound(self)
   end
 
   self:schedule_render()
 end
 
---- Remove a child node, like table.remove().
+--- Remove an inbound node, like table.remove().
 ---
---- Destroys the removed child, if any.
+--- Destroys the removed node, if any.
 ---
---- The parent is scheduled for rendering.
+--- The ob is scheduled for rendering.
 ---
----@param idx number: index of child to remove from Fidget
+---@param idx number: index of node to remove from Fidget
 ---@overload fun()
 function Fidget:remove(idx)
-  local old = table.remove(self.children, idx)
+  local old = table.remove(self.inbound, idx)
   if type(old) == "table" then
     do_destroy(old)
   end
@@ -204,49 +219,47 @@ end
 --- Render a Fidget, and render or destroy its descendents as necessary.
 function do_render(self)
   ---@private
-  --- What to do with each child.
-  local function eval_child(child)
-    if type(child) == "table" then
-      -- Child is fidget object that may produce data
-      if child._scheduled == "render" then
-        child._scheduled = nil
+  --- What to do with each inbound node.
+  local function eval_inbound(ib)
+    if type(ib) == "table" then
+      -- Node is fidget object that may produce data
+      if ib._scheduled == "render" then
+        ib._scheduled = nil
 
-        -- Re-render child
-        return do_render(child)
-        -- table.insert(children_output, do_render(child))
-      elseif child._scheduled == "destroy" then
-        -- table.remove(new_children)
+        -- Re-render Fidget
+        return do_render(ib)
+      elseif ib._scheduled == "destroy" then
 
-        -- Destroy child and all of its descendents
-        do_destroy(child)
+        -- Destroy node and all of its upstream peers
+        do_destroy(ib)
 
         return nil
       else
-        -- Nothing needs to be done, use cached child data
-        return child._output
+        -- Nothing needs to be done, use cached output
+        return ib._output
       end
-    elseif type(child) == "function" then
-      -- Child is function that returns data
-      return child()
+    elseif type(ib) == "function" then
+      -- Node is function that returns output data
+      return ib()
     else
-      -- Child is plain-old data, insert it directly
-      return child
+      -- Node is plain-old data, output it directly
+      return ib
     end
   end
 
-  local children_output = {}
-  local new_children = {}
+  local inbound_output = {}
+  local new_inbound = {}
 
-  for k, child in pairs(self.children) do
-    local data = eval_child(child)
+  for k, ib in pairs(self.inbound) do
+    local data = eval_inbound(ib)
     if data ~= nil then
-      new_children[k] = child
-      children_output[k] = data
+      new_inbound[k] = ib
+      inbound_output[k] = data
     end
   end
-  self.children = new_children
+  self.inbound = new_inbound
 
-  self._output = self:render(children_output)
+  self._output = self:render(inbound_output)
   self._scheduled = nil
 
   return self._output
@@ -255,16 +268,16 @@ end
 ---@private
 --- Destroy a Fidget and all its descendents.
 function do_destroy(self)
-  for _, child in pairs(self.children) do
-    if type(child) == "table" then
-      do_destroy(child)
+  for _, ib in pairs(self.inbound) do
+    if type(ib) == "table" then
+      do_destroy(ib)
     end
   end
   if self.destroy then
     self:destroy()
   end
-  self.children = nil
-  self._parent = nil
+  self.inbound = nil
+  self._outbound = nil
   self._output = nil
 end
 
