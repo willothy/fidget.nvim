@@ -69,7 +69,6 @@ local options = {
 
 local fidgets = {}
 
-
 local function ignore_E523(callable)
   -- Wrap a function and suppress the E523 error.
   --
@@ -83,7 +82,7 @@ local function ignore_E523(callable)
 
   return function()
     status, ex = pcall(callable)
-    if not status then  -- exception!
+    if not status then -- exception!
       if string.find(ex, "E523: Not allowed here") then
         -- Ignore E523 error (not allowed here): see #68
       else
