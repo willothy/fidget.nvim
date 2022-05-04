@@ -19,6 +19,8 @@ local function get_spinner(spinner)
   return spinner
 end
 
+---@alias SpinnerOutput string
+
 ---@class SpinnerFidget : Fidget
 ---@field spinner_frames string[]|nil: frames of text to output when incomplete
 ---@field complete_text string|nil: text to output when complete

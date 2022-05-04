@@ -37,6 +37,13 @@ M.ClientFidget = ClientFidget
 
 ClientFidget.class = "lsp-progress"
 
+---@class ClientOutput : FidgetOutput
+---@field title string: name of LSP client
+---@field complete boolean: whether LSP client tasks have completed
+---@field body string: accumulated messages of LSP client
+
+---@param inputs table[]TaskOutput
+---@return ClientOutput
 function ClientFidget:render(inputs)
   local output = {}
   output.title = self.name
@@ -81,6 +88,11 @@ M.TaskFidget = TaskFidget
 
 TaskFidget.class = "lsp-progress-task"
 
+---@class TaskOutput : FidgetOutput
+---@field complete boolean: whether the task is complete
+---@field message string: current message of task
+
+---@return TaskOutput
 function TaskFidget:render()
   local fmt = self.fmt or options.task.fmt
   return {
