@@ -11,7 +11,6 @@ local do_destroy
 
 ---@alias FidgetInbound Fidget|function()->FidgetOutput|FidgetOutput
 --- A Fidget may have non-Fidget inbound, e.g., functions or unchanging plain data.
---- TODO: if a Fidget "evaluates" to nil, then it is automatically destroyed.
 
 ---@alias FidgetSchedState "render"|"destroy"|false
 
@@ -26,25 +25,30 @@ local do_destroy
 ---
 ---@field class string: class identifier of Fidget instance
 ---@field render FidgetRender: method to render output (required)
----@field initialize FidgetMethod: method to initialize a fidget (optional)
----@field destroy FidgetMethod: method to cleanup fidget (optional)
 ---@field inbound table[any]FidgetInbound: inbound peers of this Fidget
 ---@field _outbound table[Fidget]true: outbound peers of this Fidget
 ---@field _scheduled FidgetSchedState: what this Fidget is scheduled to do
 ---@field _output FidgetOutput: cached result of render
 local Fidget = {}
+M.Fidget = Fidget
 Fidget.__index = Fidget
 
 --- Create subclass of Fidget.
 function Fidget:subclass()
   local o = setmetatable({}, self)
   o.__index = o
+  o.__baseclass = Fidget
   return o
+end
+
+--- Whether an object is an instance of Fidget.
+function M.is_fidget(obj)
+  local mt = getmetatable(obj)
+  return mt and mt.__baseclass == Fidget
 end
 
 Fidget.class = "base"
 Fidget.render = nil
-Fidget.destroy = nil
 
 --- Construct a Fidget object.
 ---@param obj table|nil: initial Fidget instance
@@ -71,14 +75,34 @@ function Fidget:new(obj)
     end
   end
 
-  if obj.initialize then
-    obj:initialize()
-  end
+  obj:initialize()
 
   -- Initialize this Fidget by rendering it at the next opportunity
   obj:schedule_render()
 
   return obj
+end
+
+--- Overrideable method to initialize a Fidget upon creation.
+function Fidget:initialize()
+end
+
+--- Overrideable method to clean up a Fidget before destruction.
+function Fidget:destroy()
+end
+
+--- Construct a new render function by composing a function before it.
+function Fidget:before_render(fn)
+  return function(actual_self, inputs)
+    self.render(actual_self, fn(actual_self, inputs))
+  end
+end
+
+--- Construct a new render function by composing a function after it.
+function Fidget:after_render(fn)
+  return function(actual_self, inputs)
+    fn(actual_self, self.render(actual_self, inputs))
+  end
 end
 
 --- Schedule a Fidget to be re-rendered soon.
@@ -107,9 +131,9 @@ function Fidget:schedule_render()
 end
 
 function Fidget:schedule_outbound()
-    for ob, _ in pairs(self._outbound) do
-      ob:schedule_render()
-    end
+  for ob, _ in pairs(self._outbound) do
+    ob:schedule_render()
+  end
 end
 
 --- Schedule a Fidget to be destroyed soon.
@@ -147,6 +171,10 @@ end
 
 function Fidget:remove_outbound(ob)
   self._outbound[ob] = false
+end
+
+function Fidget:outbounds(_v)
+  return next(self._outbound, _v)
 end
 
 --- Retrieve inbound node at given index.
@@ -229,7 +257,6 @@ function do_render(self)
         -- Re-render Fidget
         return do_render(ib)
       elseif ib._scheduled == "destroy" then
-
         -- Destroy node and all of its upstream peers
         do_destroy(ib)
 
@@ -248,17 +275,9 @@ function do_render(self)
   end
 
   local inbound_output = {}
-  local new_inbound = {}
-
   for k, ib in pairs(self.inbound) do
-    local data = eval_inbound(ib)
-    if data ~= nil then
-      new_inbound[k] = ib
-      inbound_output[k] = data
-    end
+    inbound_output[k] = eval_inbound(ib)
   end
-  self.inbound = new_inbound
-
   self._output = self:render(inbound_output)
   self._scheduled = nil
 
@@ -273,14 +292,10 @@ function do_destroy(self)
       do_destroy(ib)
     end
   end
-  if self.destroy then
-    self:destroy()
-  end
+  self:destroy()
   self.inbound = nil
   self._outbound = nil
   self._output = nil
 end
-
-M.Fidget = Fidget
 
 return M
