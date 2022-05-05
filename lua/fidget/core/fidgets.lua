@@ -94,14 +94,14 @@ end
 --- Construct a new render function by composing a function before it.
 function Fidget:before_render(fn)
   return function(actual_self, inputs)
-    self.render(actual_self, fn(actual_self, inputs))
+    return self.render(actual_self, fn(actual_self, inputs))
   end
 end
 
 --- Construct a new render function by composing a function after it.
 function Fidget:after_render(fn)
   return function(actual_self, inputs)
-    fn(actual_self, self.render(actual_self, inputs))
+    return fn(actual_self, self.render(actual_self, inputs))
   end
 end
 
@@ -218,7 +218,11 @@ end
 ---@param child FidgetInbound: the child to be inserted
 ---@overload fun(self, child: FidgetInbound)
 function Fidget:insert(idx, child)
-  table.insert(self.inbound, idx, child)
+  if child then
+    table.insert(self.inbound, idx, child)
+  else
+    table.insert(self.inbound, idx)
+  end
   if type(child) == "table" then
     child:add_outbound(self)
   end
@@ -235,7 +239,12 @@ end
 ---@param idx number: index of node to remove from Fidget
 ---@overload fun()
 function Fidget:remove(idx)
-  local old = table.remove(self.inbound, idx)
+  local old
+  if idx then
+    old = table.remove(self.inbound, idx)
+  else
+    old = table.remove(self.inbound)
+  end
   if type(old) == "table" then
     do_destroy(old)
   end
@@ -287,6 +296,9 @@ end
 ---@private
 --- Destroy a Fidget and all its descendents.
 function do_destroy(self)
+  if not self.inbound then
+    vim.pretty_print("RUH ROH", self.class)
+  end
   for _, ib in pairs(self.inbound) do
     if type(ib) == "table" then
       do_destroy(ib)

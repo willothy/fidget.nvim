@@ -6,13 +6,17 @@ local active_clients = {}
 M.active_clients = active_clients
 
 local fidgets = require("fidget.core.fidgets")
-local err_message = require("fidget.utils.errors").err_message
+local log = require("fidget.utils.log")
 
 local options = {
+  enable = true,
+  outbound = {
+    backend = "nvim-notify",
+    spinner = true,
+  },
   client = {
     decay = 2000,
   },
-
   task = {
     begin_message = "Started",
     end_message = "Completed",
@@ -73,7 +77,37 @@ function ClientFidget:render(inputs)
 end
 
 function ClientFidget:initialize()
-  print("hello[]")
+  local spinner_fidget
+
+  if options.outbound.spinner then
+    local Spinner = require("fidget.lib.spinner")
+    Spinner.setup()
+    Spinner = Spinner.SpinnerFidget
+    spinner_fidget = Spinner:new({
+      inbound = { self },
+      render = Spinner:before_render(function(_, inputs)
+        -- TODO: destroy spinner once it's donezo
+        return inputs[1] and inputs[1].complete
+      end),
+    })
+  end
+
+  if options.outbound.backend == "nvim-notify" then
+    local Notify = require("fidget.lib.nvim-notify")
+    Notify = Notify.NvimNotifyFidget
+    Notify:new({
+      inbound = { progress = self, spinner = spinner_fidget },
+      render = Notify:before_render(function(_, inputs)
+        return {
+          msg = inputs.progress.body,
+          opts = {
+            title = inputs.progress.title,
+            icon = inputs.spinner,
+          },
+        }
+      end),
+    })
+  end
 end
 
 ---@class TaskFidget : Fidget
@@ -108,25 +142,21 @@ function TaskFidget:update_task(msg)
     self._destroy_timer:stop()
   end
 
-  self._complete = false
-
-  if msg.kind == "begin" then
-    self.title = msg.title
-    self.message = msg.message or options.task.begin_message
-  elseif msg.kind == "report" then
+  if not msg.done then
+    self.title = msg.title or self.title
+    self._complete = false
     self.percentage = msg.percentage or self.percentage
-    self.message = msg.message or self.message
-  elseif msg.kind == "end" then
+    self.message = msg.message or self.message or options.task.begin_message
+  else
+    self.title = msg.title or self.title
     if self.percentage then
       self.percentage = 100
     end
-    self._complete = true
     self.message = msg.message or options.task.end_message
+    self._complete = true
     self._destroy_timer = vim.defer_fn(function()
       self:schedule_destroy()
     end, options.task.decay)
-  else
-    -- WARN
   end
 
   self:schedule_render()
@@ -141,10 +171,11 @@ function TaskFidget:new_from_message(msg)
 end
 
 ---@class LspProgressMessage
----@field kind "begin"|"report"|"end": what kind of report
+---@field name string|nil: name of the client
 ---@field title string|nil: title of the progress operation
 ---@field message string|nil: detailed information about progress
 ---@field percentage number|nil: percentage of progress completed
+---@field done boolean: whether the progress reported is complete
 
 ---@private
 --- LSP progress handler for vim.lsp.handlers["$/progress"]
@@ -156,10 +187,10 @@ local function progress_handler(_, result, ctx, _)
   local client_name = client and client.name
     or string.format("id=%d", client_id)
   if not client then
-    err_message(
-      "LSP[",
-      client_name,
-      "] client has shut down after sending the message"
+    log.error(
+      "LSP["
+        .. client_name
+        .. "] client has shut down after sending the message"
     )
     return vim.NIL
   end
@@ -171,29 +202,30 @@ local function progress_handler(_, result, ctx, _)
   end
   if val.kind then
     if val.kind == "begin" then
-      client.messages.M[token] = {
+      client.messages.progress[token] = {
         title = val.title,
         message = val.message,
         percentage = val.percentage,
       }
     elseif val.kind == "report" then
-      client.messages.M[token].message = val.message
-      client.messages.M[token].percentage = val.percentage
+      client.messages.progress[token].message = val.message
+      client.messages.progress[token].percentage = val.percentage
     elseif val.kind == "end" then
-      if client.messages.M[token] == nil then
-        err_message(
-          "LSP[",
-          client_name,
-          "] received `end` message with no corresponding `begin`"
+      if client.messages.progress[token] == nil then
+        log.error(
+          "LSP["
+            .. client_name
+            .. "] received `end` message with no corresponding `begin`"
         )
       else
-        client.messages.M[token].message = val.message
-        client.messages.M[token].done = true
+        client.messages.progress[token].message = val.message
+        client.messages.progress[token].done = true
       end
     end
+    client.messages.progress[token].kind = val.kind
   else
-    client.messages.M[token] = val
-    client.messages.M[token].done = true
+    client.messages.progress[token] = val
+    client.messages.progress[token].done = true
   end
 
   vim.api.nvim_command("doautocmd <nomodeline> User LspProgressUpdate")
@@ -263,7 +295,7 @@ local function handle_progress_notification()
   local client_messages = M.digest_progress_messages()
   for client, messages in pairs(client_messages) do
     if not active_clients[client] then
-      active_clients[client] = ClientFidget:new {name = client}
+      active_clients[client] = ClientFidget:new({ name = client })
     end
 
     local client_fidget = active_clients[client]
@@ -289,5 +321,7 @@ function M.setup(opts)
     subscribe_to_progress_messages()
   end
 end
+
+M.setup()
 
 return M

@@ -10,10 +10,11 @@ local options = {
 }
 
 local function get_spinner(spinner)
+  print("get_spinner")
   if type(spinner) == "string" then
-    spinner = require("fidget.utils.spinners")[options.text.spinner]
+    spinner = require("fidget.utils.spinners")[spinner]
     if spinner == nil then
-      log.error("Unknown spinner name: " .. options.text.spinner)
+      log.error("Unknown spinner name: " .. spinner)
     end
   end
   return spinner
@@ -28,18 +29,12 @@ end
 ---@field _spinner_index number: frame number in spinner_frames to output
 ---@field _spinner_timer TimerHandle|nil: handle to animate spinner
 local SpinnerFidget = fidgets.Fidget:subclass()
-fidgets.SpinnerFidget = SpinnerFidget
+M.SpinnerFidget = SpinnerFidget
 
 SpinnerFidget.class = "spinner"
 
-function SpinnerFidget:render(inputs)
-  local complete = false
-  if next(inputs) then
-    complete = true
-    for _, input in pairs(inputs) do
-      complete = complete and input.complete
-    end
-  end
+function SpinnerFidget:render(complete)
+  assert(type(complete) == "boolean", "spinner input type must be boolean")
 
   if complete then
     self:stop_animation()
@@ -49,7 +44,7 @@ function SpinnerFidget:render(inputs)
     local frames = self.spinner_frames or options.spinner_frames
 
     -- Wrap _spinner_index if necessary
-    if self._spinner_index > #frames then
+    if self._spinner_index >= #frames then
       self._spinner_index = self._spinner_index % #frames
     end
     return frames[self._spinner_index + 1]
@@ -58,9 +53,9 @@ end
 
 function SpinnerFidget:initialize()
   self._spinner_index = 0
-  if self.spinner_frames then
-    self.spinner_frames = get_spinner(self.spinner_frames)
-  end
+  self.spinner_frames = get_spinner(
+    self.spinner_frames or options.spinner_frames
+  )
   self:start_animation()
 end
 
