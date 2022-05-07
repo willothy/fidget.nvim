@@ -10,7 +10,6 @@ local options = {
 }
 
 local function get_spinner(spinner)
-  print("get_spinner")
   if type(spinner) == "string" then
     spinner = require("fidget.utils.spinners")[spinner]
     if spinner == nil then
@@ -34,6 +33,15 @@ M.SpinnerFidget = SpinnerFidget
 SpinnerFidget.class = "spinner"
 
 function SpinnerFidget:render(complete)
+  if next(self.inbound) == nil then
+    vim.pretty_print("destroying spinner")
+    self:schedule_destroy()
+  end
+
+  if complete == nil then
+    return nil
+  end
+
   assert(type(complete) == "boolean", "spinner input type must be boolean")
 
   if complete then

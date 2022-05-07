@@ -18,6 +18,10 @@ NvimNotifyFidget.opts = nil
 NvimNotifyFidget.handle = nil
 
 function NvimNotifyFidget:render(input)
+  if next(self.inbound) == nil then
+    self:schedule_destroy()
+  end
+
   local level = input.level or self.level or options.default_level
 
   local opts = options.default_opts
@@ -33,12 +37,13 @@ function NvimNotifyFidget:render(input)
   opts.hide_from_history = true
 
   self.record = notify.notify(input.msg, level, opts)
+
   return input
 end
 
 function NvimNotifyFidget:destroy()
   if self.record then
-    notify.notify("", nil, {timeout = 0, replace = self.record})
+    notify.notify("", nil, { timeout = 0, replace = self.record })
   end
 end
 
