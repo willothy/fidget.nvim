@@ -5,17 +5,7 @@ local sched = require("fidget.core.sched")
 
 local do_render
 local do_destroy
-
----@class FidgetOutput
---- The data produced by a Fidget
-
----@alias FidgetInbound Fidget|function()->FidgetOutput|FidgetOutput
---- A Fidget may have non-Fidget inbound, e.g., functions or unchanging plain data.
-
----@alias FidgetSchedState "render"|"destroy"|false
-
----@alias FidgetRender function(Fidget, table[any]FidgetOutput)->FidgetOutput
----@alias FidgetMethod function(Fidget)
+local schedule_fidget
 
 ---@class Fidget
 --- A Fidget is a UI model component encapsulating some local state, organized
@@ -28,10 +18,22 @@ local do_destroy
 ---@field inbound table[any]FidgetInbound: inbound peers of this Fidget
 ---@field _outbound table[Fidget]true: outbound peers of this Fidget
 ---@field _scheduled FidgetSchedState: what this Fidget is scheduled to do
+---@field _queued boolean: whether this Fidget is queued for evaluation
 ---@field _output FidgetOutput: cached result of render
 local Fidget = {}
 M.Fidget = Fidget
 Fidget.__index = Fidget
+
+---@class FidgetOutput
+--- The data produced by a Fidget
+
+---@alias FidgetInbound Fidget|function()->FidgetOutput|FidgetOutput
+--- A Fidget may have non-Fidget inbound, e.g., functions or unchanging plain data.
+
+---@alias FidgetSchedState "render"|"destroy"|false
+
+---@alias FidgetRender function(Fidget, table[any]FidgetOutput)->FidgetOutput
+---@alias FidgetMethod function(Fidget)
 
 --- Create subclass of Fidget.
 function Fidget:subclass()
@@ -63,6 +65,7 @@ function Fidget:new(obj)
     -- Internal fields
     _outbound = {},
     _scheduled = false,
+    _queued = false,
     _output = "unrendered data", -- This dummy value will get overwritten.
   })
 
@@ -70,7 +73,7 @@ function Fidget:new(obj)
   assert(type(obj.render) == "function", "render method is required")
 
   for _, ib in pairs(obj.inbound) do
-    if type(ib) == "table" then
+    if M.is_fidget(ib) then
       ib:add_outbound(obj)
     end
   end
@@ -84,12 +87,17 @@ function Fidget:new(obj)
 end
 
 --- Overrideable method to initialize a Fidget upon creation.
-function Fidget:initialize()
+function Fidget:initialize() end
+
+--- Overrideable method to initialize a Fidget upon creation.
+---@param inputs table[any]FidgetOutput: table of inbound outputs
+---@return FidgetOutput: flattened inputs
+function Fidget:render(inputs)
+  return vim.tbl_flatten(inputs)
 end
 
 --- Overrideable method to clean up a Fidget before destruction.
-function Fidget:destroy()
-end
+function Fidget:destroy() end
 
 --- Construct a new render function by composing a function before it.
 function Fidget:before_render(fn)
@@ -111,29 +119,13 @@ end
 ---
 --- Scheduling destruction takes priority over scheduling rendering.
 function Fidget:schedule_render()
-  -- Optimization: if already scheduled, no need to reschedule.
-  if self._scheduled == "render" then
+  if self._scheduled then
+    -- If _scheduled == "render", then no need to re-schedule self.
+    -- If _scheduled == "destroy", then that takes priority.
     return
   end
-
-  if self._scheduled == "destroy" then
-    -- Already scheduled for destruction, should not also render.
-    return
-  end
-
   self._scheduled = "render"
-
-  if not self:is_sink() then
-    self:schedule_outbound()
-  else
-    sched.method(self, do_render)
-  end
-end
-
-function Fidget:schedule_outbound()
-  for ob, _ in pairs(self._outbound) do
-    ob:schedule_render()
-  end
+  schedule_fidget(self)
 end
 
 --- Schedule a Fidget to be destroyed soon.
@@ -144,13 +136,12 @@ end
 --- Scheduling destruction takes priority over scheduling rendering, and is
 --- idempotent.
 function Fidget:schedule_destroy()
-  self._scheduled = "destroy"
-
-  if not self:is_sink() then
-    self:schedule_outbound()
-  else
-    sched.method(self, do_destroy)
+  if self._scheduled == "destroy" then
+    return
   end
+  -- "destroy" takes precedence over "render"
+  self._scheduled = "destroy"
+  schedule_fidget(self)
 end
 
 --- Whether a Fidget has no outbound nodes.
@@ -165,16 +156,18 @@ function Fidget:is_tap()
   return next(self.inbound) == nil
 end
 
-function Fidget:add_outbound(ob)
-  self._outbound[ob] = true
+function Fidget:add_outbound(ob, key)
+  self._outbound[ob] = key
 end
 
 function Fidget:remove_outbound(ob)
-  self._outbound[ob] = false
-end
+  local key = self._outbound[ob]
+  if key == nil then
+    return
+  end
 
-function Fidget:outbounds(_v)
-  return next(self._outbound, _v)
+  self._outbound[ob] = nil
+  return key
 end
 
 --- Retrieve inbound node at given index.
@@ -197,12 +190,12 @@ function Fidget:set(k, ib)
   local old = self.inbound[k]
 
   self.inbound[k] = ib
-  if type(ib) == "table" then
+  if M.is_fidget(ib) then
     ib:add_outbound(self)
   end
 
-  if type(old) == "table" then
-    do_destroy(old)
+  if M.is_fidget(old) then
+    old:schedule_destroy()
   end
 
   self:schedule_render()
@@ -308,6 +301,38 @@ function do_destroy(self)
   self.inbound = nil
   self._outbound = nil
   self._output = nil
+end
+
+---@private
+--- Handle to manage deferred work.
+local work_handle = vim.loop.new_idle()
+
+local work_set = {}
+
+function schedule_fidget(fidget)
+  work_set[fidget] = true
+  work_handle:start(function()
+    work_handle:stop()
+    local work_queue = {}
+
+    local function queue_fidget(f)
+      -- TODO: check for _scheduled
+      for ob, _ in pairs(f._outbound) do
+        queue_fidget(ob)
+      end
+      table.insert(work_queue, f)
+    end
+
+    for f, _ in pairs(work_set) do
+      queue_fidget(f)
+    end
+
+    work_set = {}
+
+    for i = #work_queue, 1, -1 do
+      eval_fidget(work_queue[i])
+    end
+  end)
 end
 
 return M
