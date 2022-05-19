@@ -11,7 +11,7 @@ local schedule_fidget
 --- rendered output of their children.
 ---
 ---@field class string: class identifier of Fidget instance
----@field children table<FidgetKey, FidgetSource>: data sources
+---@field _children table<FidgetKey, FidgetSource>: data sources
 ---@field _parent Fidget|nil: where to propragate output to
 ---@field _parent_key FidgetKey|nil: parent's index to this Fidget
 ---@field _scheduled FidgetSchedState: what this Fidget is scheduled to do
@@ -52,25 +52,26 @@ Fidget.class = "base"
 --- Construct a Fidget object.
 ---@param obj Fidget|nil: initial Fidget instance
 ---@returns Fidget: the newly construct Fidget
-function Fidget:new(obj)
+function Fidget:new(obj, children)
   obj = obj or {}
 
-  obj = vim.tbl_extend("keep", obj, {
-    children = {},
-  })
   obj = vim.tbl_extend("error", obj, {
     -- Internal fields
-    _parent = {},
+    _children = {},
+    _parent = nil,
     _scheduled = false,
-    _queued = nil,  -- Only used during top sort
-    _output = nil,  -- Initialized during impending render phase
+    _queued = nil, -- Only used during top sort
+    _output = "uninitialized output", -- Initialized during impending render phase
   })
 
   setmetatable(obj, self)
 
-  for k, child in pairs(obj.children) do
-    if M.is_fidget(child) then
-      child:_set_parent(k, obj)
+  if children then
+    for k, child in pairs(children) do
+      obj:set(k, child)
+      -- if M.is_fidget(child) then
+      --   child:_set_parent(k, obj)
+      -- end
     end
   end
 
@@ -89,7 +90,8 @@ function Fidget:initialize() end
 ---@param inputs table<any, FidgetOutput>: table of child outputs
 ---@return FidgetOutput: flattened inputs
 function Fidget:render(inputs)
-  return vim.tbl_flatten(inputs)
+  local _, output = next(inputs)
+  return output
 end
 
 --- Overrideable method to clean up a Fidget before destruction.
@@ -118,7 +120,7 @@ end
 --- Whether a Fidget has no children.
 ---@return boolean
 function Fidget:is_leaf()
-  return next(self.children) == nil
+  return next(self._children) == nil
 end
 
 ---@private
@@ -147,10 +149,20 @@ function Fidget:_remove_parent()
   end
 
   self._parent:schedule_render()
-  self._parent.children[self._parent_key] = nil
+  self._parent._children[self._parent_key] = nil
 
   self._parent_key = nil
   self._parent = nil
+end
+
+--- Retrieve a child.
+---
+--- If there are multiple children, this will return an arbitrary child.
+---
+---@return FidgetSource
+function Fidget:get_child()
+  local _, child = next(self._children)
+  return child
 end
 
 --- Retrieve child at given index.
@@ -158,7 +170,7 @@ end
 ---@param k FidgetKey
 ---@return FidgetSource
 function Fidget:get(k)
-  return self.children[k]
+  return self._children[k]
 end
 
 --- Set (or remove) child at given index.
@@ -170,8 +182,8 @@ end
 ---@param k FidgetKey: given index
 ---@param s FidgetSource|nil: child to be set at given index
 function Fidget:set(k, s)
-  local old_child = self.children[k]
-  self.children[k] = s
+  local old_child = self._children[k]
+  self._children[k] = s
 
   if M.is_fidget(s) then
     s:_set_parent(k, self)
@@ -193,11 +205,11 @@ end
 ---@overload fun(self, child: FidgetSource)
 function Fidget:insert(idx, child)
   if child then
-    table.insert(self.children, idx, child)
+    table.insert(self._children, idx, child)
   else
     child = idx
-    table.insert(self.children, child)
-    idx = #self.children
+    table.insert(self._children, child)
+    idx = #self._children
   end
 
   if M.is_fidget(child) then
@@ -218,9 +230,9 @@ end
 function Fidget:remove(idx)
   local old
   if idx then
-    old = table.remove(self.children, idx)
+    old = table.remove(self._children, idx)
   else
-    old = table.remove(self.children)
+    old = table.remove(self._children)
   end
   if M.is_fidget(old) then
     old:schedule_destroy()
@@ -258,15 +270,30 @@ function Fidget:schedule_destroy()
     return
   end
 
-  local needs_schedule = self._scheduled == "render"
-  -- No need to re-schedule, but "destroy" takes precedence over "render".
-
   self._scheduled = "destroy"
   self:_remove_parent()
+  schedule_fidget(self)
+end
 
-  if needs_schedule then
-    schedule_fidget(self)
+function Fidget:log(...)
+  local info = debug.getinfo(2, "Sl")
+  local ctx
+
+  if not info then
+    ctx = string.format("%s(%s) [missing context??]:", self.class, self)
+  elseif info.what == "C" then
+    ctx = string.format("%s(%s) [C function??]:", self.class, self)
+  else
+    ctx = string.format(
+      "%s(%s) [%s]:%d:",
+      self.class,
+      self,
+      info.short_src,
+      info.currentline
+    )
   end
+
+  vim.pretty_print(ctx, ...)
 end
 
 ---@private
@@ -278,17 +305,21 @@ local function do_destroy(self)
 
   -- TODO: account for possibility that child was already scheduled for render?
 
-  for _, child in pairs(self.children) do
-    if M.is_fidget(child) then
-      do_destroy(child)
+  -- TODO: this conditional guards against the scenario where do_destroy() is
+  -- called twice on the same node twice for some reason, but is ugly.
+  if self.children then
+    for _, child in pairs(self._children) do
+      if M.is_fidget(child) then
+        do_destroy(child)
+      end
     end
   end
 
   self:destroy()
 
-  self.children = nil
+  self._children = nil
   self._parent = nil
-  self._output = nil
+  self._output = "destroyed output"
 end
 
 ---@private
@@ -300,7 +331,7 @@ local function do_render(self)
 
   local data = {}
 
-  for k, src in pairs(self.children) do
+  for k, src in pairs(self._children) do
     if M.is_fidget(src) then
       -- Node is fidget object that has cached data at src._output
       data[k] = src._output
@@ -312,8 +343,10 @@ local function do_render(self)
       data[k] = src
     end
   end
-
-  self._output = self:render(data)
+  self:log("data is: ", data)
+  local output = self:render(data)
+  self:log("render produced this output: ", output)
+  self._output = output
 end
 
 ---@private
@@ -331,54 +364,56 @@ function schedule_fidget(fidget)
   work_set[fidget] = true
   work_handle:start(function()
     work_handle:stop()
-    log.trace("Render/destroy phase: started")
+    vim.schedule(function()
+      log.trace("Render/destroy phase: started")
 
-    -- Fidgets need to be evaluated in topological order, so we construct the
-    -- post-order work queue using DFS (built in FILO order).
-    local work_queue = {}
+      -- Fidgets need to be evaluated in topological order, so we construct the
+      -- post-order work queue using DFS (built in FILO order).
+      local work_queue = {}
 
-    local function queue_fidget(f)
-      if f._queued then
-        return
+      local function queue_fidget(f)
+        if f._queued then
+          return
+        end
+
+        if f._queued == false then
+          error("Circular Fidget topology")
+        end
+
+        f._queued = false
+
+        if f._parent and not f._parent._queued then
+          queue_fidget(f._parent)
+        end
+
+        f._queued = true
+
+        table.insert(work_queue, f)
       end
 
-      if f._queued == false then
-        error("Circular Fidget topology")
+      log.trace("Render/destroy phase: constructing work schedule")
+      for f, _ in pairs(work_set) do
+        queue_fidget(f)
       end
 
-      f._queued = false
+      work_set = {}
 
-      if f._parent and not f._parent._queued then
-        queue_fidget(f._parent)
+      log.trace("Render/destroy phase: executing work schedule")
+      for i = #work_queue, 1, -1 do
+        local f = work_queue[i]
+        f._queued = nil
+
+        if f._scheduled == "destroy" then
+          do_destroy(f)
+        else
+          -- Note that it is possible that f._scheduled == false (i.e., it has not
+          -- been explicit scheduled), if its children were re-rendered.
+          -- Thus we re-render it anyway.
+          do_render(f)
+        end
       end
-
-      f._queued = true
-
-      table.insert(work_queue, f)
-    end
-
-    log.trace("Render/destroy phase: constructing work schedule")
-    for f, _ in pairs(work_set) do
-      queue_fidget(f)
-    end
-
-    work_set = {}
-
-    log.trace("Render/destroy phase: executing work schedule")
-    for i = #work_queue, 1, -1 do
-      local f = work_queue[i]
-      f._queued = nil
-
-      if f._scheduled == "destroy" then
-        do_destroy(f)
-      else
-        -- Note that it is possible that f._scheduled == false (i.e., it has not
-        -- been explicit scheduled), if its children were re-rendered.
-        -- Thus we re-render it anyway.
-        do_render(f)
-      end
-    end
-    log.trace("Render/destroy phase: complete")
+      log.trace("Render/destroy phase: complete")
+    end)
   end)
 end
 

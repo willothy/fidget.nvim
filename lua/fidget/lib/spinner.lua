@@ -22,6 +22,8 @@ end
 ---@alias SpinnerOutput string
 
 ---@class SpinnerFidget : Fidget
+---@field new fun(table): SpinnerFidget: inherited constructor
+---@field complete boolean: whether the spinner is complete
 ---@field spinner_frames string[]|nil: frames of text to output when incomplete
 ---@field complete_text string|nil: text to output when complete
 ---@field frame_rate number|nil: rate at which spinner frames are animated
@@ -32,23 +34,12 @@ M.SpinnerFidget = SpinnerFidget
 
 SpinnerFidget.class = "spinner"
 
-function SpinnerFidget:render(complete)
-  if next(self.inbound) == nil then
-    vim.pretty_print("destroying spinner")
-    self:schedule_destroy()
-  end
+SpinnerFidget.complete = false
 
-  if complete == nil then
-    return nil
-  end
-
-  assert(type(complete) == "boolean", "spinner input type must be boolean")
-
-  if complete then
-    self:stop_animation()
+function SpinnerFidget:render()
+  if self.complete then
     return self.complete_text or options.complete_text
   else
-    self:start_animation()
     local frames = self.spinner_frames or options.spinner_frames
 
     -- Wrap _spinner_index if necessary
@@ -64,11 +55,25 @@ function SpinnerFidget:initialize()
   self.spinner_frames = get_spinner(
     self.spinner_frames or options.spinner_frames
   )
-  self:start_animation()
+  if self.complete then
+    self:start_animation()
+  end
 end
 
 function SpinnerFidget:destroy()
   self:stop_animation()
+end
+
+function SpinnerFidget:set_complete()
+  self.complete = true
+  self:stop_animation()
+  self:schedule_render()
+end
+
+function SpinnerFidget:set_incomplete()
+  self.complete = false
+  self:start_animation()
+  self:schedule_render()
 end
 
 function SpinnerFidget:start_animation()

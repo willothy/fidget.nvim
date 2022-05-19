@@ -32,7 +32,7 @@ local stages = {
       opacity = 0,
     }
   end,
-  function(state)
+  function(_)
     -- vim.pretty_print("stage 2", state)
     return {
       opacity = { 100 },
@@ -40,7 +40,7 @@ local stages = {
       col = { vim.opt.columns:get() },
     }
   end,
-  function(state)
+  function(_)
     -- vim.pretty_print("stage 3", state)
     return {
       col = { vim.opt.columns:get() },
@@ -72,41 +72,50 @@ local stages = {
 notify.setup({ stages = stages })
 
 ---@class NvimNotifyFidget : Fidget
+---
+---@field level number:
+---@field opts table:
+---@return nil
 local NvimNotifyFidget = fidgets.Fidget:subclass()
 M.NvimNotifyFidget = NvimNotifyFidget
 
 NvimNotifyFidget.class = "nvim-notify"
-NvimNotifyFidget.level = nil
-NvimNotifyFidget.opts = nil
-NvimNotifyFidget.handle = nil
 
-function NvimNotifyFidget:render(input)
-  if next(self.inbound) == nil then
-    self:schedule_destroy()
-  end
+function NvimNotifyFidget:render(inputs)
+  local level = self.level or options.default_level
 
-  local level = input.level or self.level or options.default_level
+  local opts = vim.tbl_deep_extend(
+    "force",
+    options.default_opts,
+    self.opts or {},
+    {
+      title = inputs.title,
+      icon = inputs.icon,
+    },
+    {
+      replace = self._record,
+      timeout = false,
+      hide_from_history = true,
+      on_close = function()
+        self:schedule_destroy()
+      end,
+    }
+  )
+  self:log("notifying: ", vim.inspect(inputs))
 
-  local opts = options.default_opts
-  if self.opts then
-    opts = vim.tbl_deep_extend("force", opts, self.opts)
-  end
-  if input.opts then
-    opts = vim.tbl_deep_extend("force", opts, input.opts)
-  end
+  self._record = notify.notify(inputs.message or "", level, opts)
 
-  opts.replace = self.record
-  opts.timeout = false
-  opts.hide_from_history = true
-
-  self.record = notify.notify(input.msg, level, opts)
-
-  return input
+  return nil
 end
 
 function NvimNotifyFidget:destroy()
-  if self.record then
-    notify.notify("", nil, { timeout = 0, replace = self.record })
+  self:close_notification()
+end
+
+function NvimNotifyFidget:close_notification()
+  if self._record then
+    notify.notify("", nil, { timeout = 0, replace = self._record })
+    self._record = nil
   end
 end
 

@@ -6,21 +6,20 @@ local active_clients = {}
 M.active_clients = active_clients
 
 local fidgets = require("fidget.core.fidgets")
+local ReleaseFidget = require("fidget.lib.release").ReleaseFidget
+local SpinnerFidget = require("fidget.lib.spinner").SpinnerFidget
 local log = require("fidget.utils.log")
 
 local options = {
   enable = true,
-  outbound = {
-    backend = "nvim-notify",
-    spinner = true,
-  },
+  backend = "nvim-notify",
   client = {
-    decay = 2000,
+    release = 2000,
   },
   task = {
     begin_message = "Started",
     end_message = "Completed",
-    decay = 1000,
+    release = 1000,
     fmt = function(title, message, percentage)
       return string.format(
         "%s%s [%s]",
@@ -32,119 +31,80 @@ local options = {
   },
 }
 
----@class ClientFidget : Fidget
----@field name string: name of LSP client (required)
+---@class TasksFidget : Fidget
+--- Aggregates progress reports from TaskFidgets
+---
 ---@field complete boolean: whether all tasks of this client are complete
----@field _destroy_timer TimerHandle|nil: timer to self-destruct upon completion
-local ClientFidget = fidgets.Fidget:subclass()
-M.ClientFidget = ClientFidget
+local TasksFidget = fidgets.Fidget:subclass()
+M.TasksFidget = TasksFidget
 
-ClientFidget.class = "lsp-progress"
+TasksFidget.class = "lsp-tasks"
+TasksFidget.complete = false
 
----@class ClientOutput : FidgetOutput
----@field title string: name of LSP client
----@field complete boolean: whether LSP client tasks have completed
----@field body string: accumulated messages of LSP client
+--- Overrideable method that is invoked when tasks are updated but not completed.
+function TasksFidget:on_update() end
 
----@param inputs table[]TaskOutput
----@return ClientOutput
-function ClientFidget:render(inputs)
+--- Overrideable method that is invoked when all the tasks are complete
+function TasksFidget:on_complete() end
+
+---@param inputs table<any, TaskOutput>
+---@return string
+function TasksFidget:render(inputs)
   local output = {}
-  output.title = self.name
-  output.complete = true
+  self.complete = true
 
   local messages = {}
   for _, input in pairs(inputs) do
     table.insert(messages, input.message)
-    output.complete = output.complete and input.complete
+    self.complete = self.complete and input.complete
   end
-  output.body = vim.fn.join(messages, "\n")
-
-  self.complete = output.complete
-
-  if self._destroy_timer then
-    self._destroy_timer:stop()
-    self._destroy_timer = nil
-  end
+  output = vim.fn.join(messages, "\n")
 
   if self.complete then
-    self._destroy_timer = vim.defer_fn(function()
-      self:schedule_destroy()
-    end, options.client.decay)
+    self:on_complete()
+  else
+    self:on_update()
   end
-
   return output
 end
 
-function ClientFidget:initialize()
-  local spinner_fidget
-
-  if options.outbound.spinner then
-    local Spinner = require("fidget.lib.spinner")
-    Spinner.setup()
-    Spinner = Spinner.SpinnerFidget
-    spinner_fidget = Spinner:new({
-      inbound = { self },
-      render = Spinner:before_render(function(_, inputs)
-        -- TODO: destroy spinner once it's donezo
-        return inputs[1] and inputs[1].complete
-      end),
-    })
-  end
-
-  if options.outbound.backend == "nvim-notify" then
-    local Notify = require("fidget.lib.nvim-notify")
-    Notify = Notify.NvimNotifyFidget
-    Notify:new({
-      inbound = { progress = self, spinner = spinner_fidget },
-      render = Notify:before_render(function(_, inputs)
-        return {
-          msg = inputs.progress.body,
-          opts = {
-            title = inputs.progress.title,
-            icon = inputs.spinner,
-          },
-        }
-      end),
-    })
-  end
-end
-
 ---@class TaskFidget : Fidget
+---@field new fun() TaskFidget: inherited constructor
 ---@field fmt function|nil: function to format
 ---@field title string|nil: title of the task
 ---@field message string|nil: message reported of the task
 ---@field percentage number|nil: percentage completion of the task
----@field _complete boolean: whether the task is complete
----@field _destroy_timer TimerHandle|nil: handle to self-destruct upon completion
+---@field complete boolean: whether the task is complete
 local TaskFidget = fidgets.Fidget:subclass()
 M.TaskFidget = TaskFidget
 
-TaskFidget.class = "lsp-progress-task"
+TaskFidget.class = "lsp-task"
 
 ---@class TaskOutput : FidgetOutput
 ---@field complete boolean: whether the task is complete
 ---@field message string: current message of task
 
+--- Overrideable method that is invoked when task is updated (but not completed).
+function TaskFidget:on_update() end
+
+--- Overrideable method that is invoked when task is complete.
+function TaskFidget:on_complete() end
+
 ---@return TaskOutput
 function TaskFidget:render()
   local fmt = self.fmt or options.task.fmt
   return {
-    complete = self._complete,
+    complete = self.complete,
     message = fmt(self.title, self.message, self.percentage),
   }
 end
 
 --- Update a task with a progress message.
 ---@param msg LspProgressMessage
-function TaskFidget:update_task(msg)
-  if self._destroy_timer then
-    self._destroy_timer:stop()
-  end
-
+function TaskFidget:update_with_message(msg)
   if not msg.done then
     self.title = msg.title or self.title
-    self._complete = false
+    self.complete = false
     self.percentage = msg.percentage or self.percentage
     self.message = msg.message or self.message or options.task.begin_message
   else
@@ -153,21 +113,104 @@ function TaskFidget:update_task(msg)
       self.percentage = 100
     end
     self.message = msg.message or options.task.end_message
-    self._complete = true
-    self._destroy_timer = vim.defer_fn(function()
-      self:schedule_destroy()
-    end, options.task.decay)
+    self.complete = true
+  end
+
+  if self.complete then
+    self:on_complete()
+  else
+    self:on_update()
   end
 
   self:schedule_render()
 end
 
---- Construct a TaskFidget initialized with an LspProgressMessage
----@param msg LspProgressMessage:
-function TaskFidget:new_from_message(msg)
-  local obj = self:new()
-  obj:update_task(msg)
-  return obj
+local function get_active_client_root(client_id)
+  if active_clients[client_id] then
+    return active_clients[client_id]
+  end
+
+  local complete_cb
+  local update_cb
+
+  local spinner = SpinnerFidget:new()
+
+  local tasks = TasksFidget:new({
+    on_complete = function()
+      complete_cb()
+    end,
+    on_update = function()
+      update_cb()
+    end,
+  })
+
+  local notify
+  if options.backend == "nvim-notify" then
+    notify = require("fidget.lib.nvim-notify").NvimNotifyFidget:new({}, {
+      title = vim.lsp.get_client_by_id(client_id).name,
+      icon = spinner,
+      message = tasks,
+    })
+  else
+    error("unsupport backend: " .. options.backend)
+  end
+
+  local root = ReleaseFidget:new({
+    release_time = options.client.release,
+  }, { notify })
+
+  active_clients[client_id] = root
+
+  complete_cb = function()
+    root:start_release()
+    spinner:set_complete()
+  end
+
+  update_cb = function()
+    root:cancel_release()
+    spinner:set_incomplete()
+  end
+
+  return root
+end
+
+local function get_active_client_tasks(client_id)
+  return get_active_client_root(client_id):get_child():get("message")
+end
+
+---@return TaskFidget
+local function get_task_by_token(tasks, token)
+  if tasks:get(token) then
+    return tasks:get(token):get_child()
+  end
+
+  local complete_cb
+  local update_cb
+
+  local task = TaskFidget:new({
+    on_complete = function()
+      complete_cb()
+    end,
+    on_update = function()
+      update_cb()
+    end,
+  })
+
+  local release = ReleaseFidget:new({
+    release_time = options.task.release,
+  }, { task })
+
+  tasks:set(token, release)
+
+  complete_cb = function()
+    release:start_release()
+  end
+
+  update_cb = function()
+    release:cancel_release()
+  end
+
+  return task
 end
 
 ---@class LspProgressMessage
@@ -240,69 +283,31 @@ local function backport_progress_handler()
   end
 end
 
---- Read progress messages from LSP clients.
+--- Based on get_progress_messages from Neovim nightly (2022/04/22): https://github.com/neovim/neovim/pull/18040
 ---
---- Adapted from Neovim nightly (2022/04/22): https://github.com/neovim/neovim/pull/18040
----
---- This implementation depends on its contemporary progress handler, i.e., what
---- was Neovim nightly as of 2022/04/22, backported above. It is not compatible
---- with the progress handler that ships with Neovim 0.7.
----
---- It is based on and compatible with vim.lsp.util.get_progress_messages() on nightly,
---- with the following differences:
----
---- -  this implementation may return messages where the title field is nil.
---- -  this implementation returns a per-client table of messages rather than
----    a flat list of progress messages.
---- -  this implementation will not clear the client message tables if a truthy
----    argument is given.
----
----@param readonly boolean: whether to clear messages from client objects.
----@return table[string]LspProgressMessage: messages indexed by client name
-function M.digest_progress_messages(readonly)
-  local new_messages = {}
-  local progress_remove = {}
+local function handle_progress_notification()
+  local to_remove = {}
 
   for _, client in ipairs(vim.lsp.get_active_clients()) do
-    new_messages[client.name] = {}
+    local tasks = get_active_client_tasks(client.id)
 
     for token, ctx in pairs(client.messages.progress) do
-      local new_report = {
-        name = client.name,
+      get_task_by_token(tasks, token):update_with_message({
         title = ctx.title,
         message = ctx.message,
         percentage = ctx.percentage,
         done = ctx.done,
         progress = true,
-      }
+      })
 
-      table.insert(new_messages[client.name], new_report)
-
-      if not readonly and ctx.done then
-        table.insert(progress_remove, { client = client, token = token })
+      if ctx.done then
+        table.insert(to_remove, { client = client, token = token })
       end
     end
   end
 
-  for _, item in ipairs(progress_remove) do
+  for _, item in ipairs(to_remove) do
     item.client.messages.progress[item.token] = nil
-  end
-
-  return new_messages
-end
-
-local function handle_progress_notification()
-  local client_messages = M.digest_progress_messages()
-  for client, messages in pairs(client_messages) do
-    if not active_clients[client] then
-      active_clients[client] = ClientFidget:new({ name = client })
-    end
-
-    local client_fidget = active_clients[client]
-
-    for _, msg in ipairs(messages) do
-      client_fidget:insert(TaskFidget:new_from_message(msg))
-    end
   end
 end
 
