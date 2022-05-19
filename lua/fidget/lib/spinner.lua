@@ -6,7 +6,7 @@ local log = require("fidget.utils.log")
 local options = {
   spinner_frames = "pipe",
   complete_text = "✔",
-  frame_rate = 125,
+  frame_rate = 1250,
 }
 
 local function get_spinner(spinner)

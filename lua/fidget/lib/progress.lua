@@ -6,9 +6,10 @@ local active_clients = {}
 M.active_clients = active_clients
 
 local fidgets = require("fidget.core.fidgets")
+local log = require("fidget.utils.log")
+
 local ReleaseFidget = require("fidget.lib.release").ReleaseFidget
 local SpinnerFidget = require("fidget.lib.spinner").SpinnerFidget
-local log = require("fidget.utils.log")
 
 local options = {
   enable = true,
@@ -130,87 +131,60 @@ local function get_active_client_root(client_id)
     return active_clients[client_id]
   end
 
-  local complete_cb
-  local update_cb
+  -- TODO: check for option
+  local NvimNotifyFidget = require("fidget.lib.nvim-notify").NvimNotifyFidget
 
-  local spinner = SpinnerFidget:new()
-
-  local tasks = TasksFidget:new({
-    on_complete = function()
-      complete_cb()
+  active_clients[client_id] = ReleaseFidget:new({
+    release_time = options.client.release,
+    destroy = function(self)
+      active_clients[client_id] = nil
+      ReleaseFidget.destroy(self)
     end,
-    on_update = function()
-      update_cb()
-    end,
+  }, {
+    NvimNotifyFidget:new({}, {
+      title = vim.lsp.get_client_by_id(client_id).name,
+      icon = SpinnerFidget:new(),
+      message = TasksFidget:new({
+        on_complete = function(self)
+          self:parent():get("icon"):set_complete()
+          self:parent():parent():start_release()
+        end,
+        on_update = function(self)
+          self:parent():get("icon"):set_incomplete()
+          self:parent():parent():cancel_release()
+        end,
+      }),
+    }),
   })
 
-  local notify
-  if options.backend == "nvim-notify" then
-    notify = require("fidget.lib.nvim-notify").NvimNotifyFidget:new({}, {
-      title = vim.lsp.get_client_by_id(client_id).name,
-      icon = spinner,
-      message = tasks,
-    })
-  else
-    error("unsupport backend: " .. options.backend)
-  end
-
-  local root = ReleaseFidget:new({
-    release_time = options.client.release,
-  }, { notify })
-
-  active_clients[client_id] = root
-
-  complete_cb = function()
-    root:start_release()
-    spinner:set_complete()
-  end
-
-  update_cb = function()
-    root:cancel_release()
-    spinner:set_incomplete()
-  end
-
-  return root
+  return active_clients[client_id]
 end
 
 local function get_active_client_tasks(client_id)
-  return get_active_client_root(client_id):get_child():get("message")
+  return get_active_client_root(client_id):get():get("message")
 end
 
 ---@return TaskFidget
 local function get_task_by_token(tasks, token)
   if tasks:get(token) then
-    return tasks:get(token):get_child()
+    return tasks:get(token):get()
   end
 
-  local complete_cb
-  local update_cb
+  tasks:set(
+    token,
+    ReleaseFidget:new({ release_time = options.task.release }, {
+      TaskFidget:new({
+        on_complete = function(self)
+          self:parent():start_release()
+        end,
+        on_update = function(self)
+          self:parent():cancel_release()
+        end,
+      }),
+    })
+  )
 
-  local task = TaskFidget:new({
-    on_complete = function()
-      complete_cb()
-    end,
-    on_update = function()
-      update_cb()
-    end,
-  })
-
-  local release = ReleaseFidget:new({
-    release_time = options.task.release,
-  }, { task })
-
-  tasks:set(token, release)
-
-  complete_cb = function()
-    release:start_release()
-  end
-
-  update_cb = function()
-    release:cancel_release()
-  end
-
-  return task
+  return tasks:get(token):get()
 end
 
 ---@class LspProgressMessage

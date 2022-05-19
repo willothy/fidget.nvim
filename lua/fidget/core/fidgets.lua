@@ -155,21 +155,25 @@ function Fidget:_remove_parent()
   self._parent = nil
 end
 
---- Retrieve a child.
+--- Retrieve parent.
 ---
---- If there are multiple children, this will return an arbitrary child.
----
----@return FidgetSource
-function Fidget:get_child()
-  local _, child = next(self._children)
-  return child
+---@return Fidget
+function Fidget:parent()
+  return self._parent
 end
 
 --- Retrieve child at given index.
 ---
+--- If no index is specified, this will return an arbitrary child (useful if
+--- there is only one child).
+---
 ---@param k FidgetKey
 ---@return FidgetSource
 function Fidget:get(k)
+  if k == nil then
+    local _, child = next(self._children)
+    return child
+  end
   return self._children[k]
 end
 
@@ -307,7 +311,7 @@ local function do_destroy(self)
 
   -- TODO: this conditional guards against the scenario where do_destroy() is
   -- called twice on the same node twice for some reason, but is ugly.
-  if self.children then
+  if self._children then
     for _, child in pairs(self._children) do
       if M.is_fidget(child) then
         do_destroy(child)
@@ -343,9 +347,7 @@ local function do_render(self)
       data[k] = src
     end
   end
-  self:log("data is: ", data)
   local output = self:render(data)
-  self:log("render produced this output: ", output)
   self._output = output
 end
 

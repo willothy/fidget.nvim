@@ -101,7 +101,6 @@ function NvimNotifyFidget:render(inputs)
       end,
     }
   )
-  self:log("notifying: ", vim.inspect(inputs))
 
   self._record = notify.notify(inputs.message or "", level, opts)
 
