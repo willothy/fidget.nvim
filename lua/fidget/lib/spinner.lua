@@ -29,10 +29,8 @@ end
 ---@field frame_rate number|nil: rate at which spinner frames are animated
 ---@field _spinner_index number: frame number in spinner_frames to output
 ---@field _spinner_timer TimerHandle|nil: handle to animate spinner
-local SpinnerFidget = fidgets.Fidget:subclass()
+local SpinnerFidget = fidgets.Fidget:subclass("SpinnerFidget")
 M.SpinnerFidget = SpinnerFidget
-
-SpinnerFidget.class = "spinner"
 
 SpinnerFidget.complete = false
 

@@ -76,10 +76,8 @@ notify.setup({ stages = stages })
 ---@field level number:
 ---@field opts table:
 ---@return nil
-local NvimNotifyFidget = fidgets.Fidget:subclass()
+local NvimNotifyFidget = fidgets.Fidget:subclass("NvimNotifyFidget")
 M.NvimNotifyFidget = NvimNotifyFidget
-
-NvimNotifyFidget.class = "nvim-notify"
 
 function NvimNotifyFidget:render(inputs)
   local level = self.level or options.default_level

@@ -10,10 +10,8 @@ local fidgets = require("fidget.core.fidgets")
 ---@field new fun(): ReleaseFidget: inherited constructor
 ---@field release_time number: time to release (required)
 ---@field _destroy_timer TimerHandle|nil: handle to self-destruct upon completion
-local ReleaseFidget = fidgets.Fidget:subclass()
+local ReleaseFidget = fidgets.Fidget:subclass("ReleaseFidget")
 M.ReleaseFidget = ReleaseFidget
-
-ReleaseFidget.class = "release"
 
 function ReleaseFidget:destroy()
   self:cancel_release()

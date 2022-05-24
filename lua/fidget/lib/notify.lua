@@ -8,10 +8,9 @@ local options = {
 }
 
 ---@class NotifyFidget : Fidget
-local NotifyFidget = fidgets.Fidget:subclass()
+local NotifyFidget = fidgets.Fidget:subclass("NotifyFidget")
 M.NotifyFidget = NotifyFidget
 
-NotifyFidget.class = "notify"
 NotifyFidget.level = nil
 NotifyFidget.opts = nil
 

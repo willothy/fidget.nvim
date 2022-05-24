@@ -36,10 +36,9 @@ local options = {
 --- Aggregates progress reports from TaskFidgets
 ---
 ---@field complete boolean: whether all tasks of this client are complete
-local TasksFidget = fidgets.Fidget:subclass()
+local TasksFidget = fidgets.Fidget:subclass("TasksFidget")
 M.TasksFidget = TasksFidget
 
-TasksFidget.class = "lsp-tasks"
 TasksFidget.complete = false
 
 --- Overrideable method that is invoked when tasks are updated but not completed.
@@ -76,10 +75,8 @@ end
 ---@field message string|nil: message reported of the task
 ---@field percentage number|nil: percentage completion of the task
 ---@field complete boolean: whether the task is complete
-local TaskFidget = fidgets.Fidget:subclass()
+local TaskFidget = fidgets.Fidget:subclass("TaskFidget")
 M.TaskFidget = TaskFidget
-
-TaskFidget.class = "lsp-task"
 
 ---@class TaskOutput : FidgetOutput
 ---@field complete boolean: whether the task is complete

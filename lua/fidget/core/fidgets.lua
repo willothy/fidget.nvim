@@ -34,10 +34,13 @@ Fidget.__index = Fidget
 --- A Fidget may be scheduled for re-rendering or destruction, if at all.
 
 --- Create subclass of Fidget.
-function Fidget:subclass()
+---@param class string|nil: Name of Fidget class
+function Fidget:subclass(class)
   local o = setmetatable({}, self)
   o.__index = o
   o.__baseclass = Fidget
+
+  o.class = class
   return o
 end
 
@@ -47,7 +50,7 @@ function M.is_fidget(obj)
   return mt and mt.__baseclass == Fidget
 end
 
-Fidget.class = "base"
+Fidget.class = "BaseFidget"
 
 --- Construct a Fidget object.
 ---@param obj Fidget|nil: initial Fidget instance
