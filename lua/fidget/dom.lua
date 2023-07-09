@@ -1,3 +1,9 @@
+local M = {}
+
+local container = require("fidget.dom.container")
+local static = require("fidget.dom.static")
+local box = require("fidget.dom.box")
+
 ---@class DOMNode
 --- Elements in a Fidget layout tree.
 ---
@@ -68,12 +74,6 @@
 ---@field lines   string[]?       array of lines of rendered text
 ---@field vframe  SubBuffer[]?    vertically stacked results
 ---@field hframe  SubBuffer[]?    horizontally stacked results
----@field restart true?           whether to restart after termination
-
-local M = {}
-
-local container = require("fidget.dom.container")
-local static = require("fidget.dom.static")
 
 ---@class RowOptions
 ---@field [number]  DOMNode                     children to be laid out horizontally
@@ -150,6 +150,28 @@ function M.Text(opt)
   end
 
   return static.Static:new(opt, flex)
+end
+
+---@class BoxOptions
+---@field [1]     DOMNode   single child of Box
+---@field width   number?   optional width to constrain child by
+---@field height  number?   optional height to constrain child by
+---
+---@param opt BoxOptions
+---@return DOMNode
+function M.Box(opt)
+  assert(#opt == 1, "Box must have exactly one child")
+
+  local child, width, height = opt[1], opt.width, opt.height
+
+  if width ~= nil then
+    assert(type(width) == "number" and width > 0, "Box must have positive width")
+  end
+  if height ~= nil then
+    assert(type(height) == "number" and height > 0, "Box must have positive height")
+  end
+
+  return box.Box:new(child, width, height)
 end
 
 return M

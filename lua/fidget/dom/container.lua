@@ -43,7 +43,7 @@ function Container:new(children, layout)
 
   for i, _ in ipairs(children) do
     -- Initialize cache with empty SubBuffers.
-    cache[i] = { height = 0, width = 0, restart = true }
+    cache[i] = { height = 0, width = 0 }
     -- Construct local array of children
     my_children[i] = children[i]
   end
@@ -176,7 +176,6 @@ function Container:update(cons)
   local sub = {
     width = final_width,
     height = final_height,
-    restart = true,
   }
 
   if vert then

@@ -38,11 +38,11 @@ end
 ---@param cons  Constraint
 ---@return      SubBuffer
 function Static:update(cons)
+  -- TODO: return nil?
   return {
     width = math.min(cons.max_width, self.max_width),
     height = math.min(cons.max_height, #self.lines),
     lines = self.lines,
-    restart = true,
   }
 end
 
