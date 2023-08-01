@@ -1,0 +1,42 @@
+2023-07-08 and 2023-07-09
+
+Renamed some stuff, dom nodes vs sub results (haha funny because kinky)
+
+Now things are like this:
+
+    DOMNode ---update--> SubBuffer ---render--> ?
+    ^            ^                      ^
+    |            |                      |
+    |            triggered by Neovim    dependent on back-end
+    user-configured
+
+Still todo:
+
+- [ ] implement vim buffer rendering back-end
+- [ ] make sure Static nodes are cache-aware
+- [ ] Anchor DOMNodes in roots that will trigger update and call render
+- [ ] embed styles/highlights into SubBuffer
+
+2023-07-04
+
+Completed implementation of layout + rendering algorithm. It should look
+something like this:
+
+    Fidgets ---update--> UpdateResult ---render--> Neovim/string[]
+    ^          ^                         ^
+    |          |                         |
+    |          triggered by Neovim       dependent on back-end
+    user-configured
+
+
+    widget layout --> buffer rendering --> Neovim/string[]
+
+Implemented crude, append-based string[] rendering algorithm.
+
+Still todo:
+
+- [x] test container and fill layout algorithms
+- [x] push coroutine triggering logic into node subclass (doesn't need to be exposed at Node level)
+- [-] implement persist flag, so that nodes can manage their own/each others' lifetimes
+    --- WONTFIX, this is too complicated imo and goes against the strictly declarative aspect of
+- [ ] implement vim buffer rendering back-end

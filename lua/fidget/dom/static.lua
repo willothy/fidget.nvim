@@ -5,8 +5,10 @@ local M = {}
 ---
 --- Optimized to minimize allocations; also used to implement Expanders.
 ---
----@field lines     string[]  lines of pre-computed content
----@field max_width number    the length of the longest line
+---@field lines       string[]  lines of pre-computed content
+---@field max_width   number    the length of the longest line
+---@field last_width  number?   last encountered cons.max_width, for cache
+---@field last_height number?   last encountered cons.max_height, for cache
 local Static = {}
 Static.__index = Static
 M.Static = Static
@@ -36,13 +38,28 @@ end
 --- many as sub.width characters from each line.
 ---
 ---@param cons  Constraint
----@return      SubBuffer
+---@return      SubBuffer|true
 function Static:update(cons)
-  -- TODO: return nil?
+  local height = math.min(cons.max_height, #self.lines)
+  local width = math.min(cons.max_width, self.max_width)
+
+  if not cons.force and height == self.last_width and width == self.last_width then
+    -- Cache hit: return true
+    return true
+  end
+
+  -- Cache miss: update cache, then compute result
+  self.last_height, self.last_width = height, width
+
+  local lines = {}
+  for i = 1, height do
+    table.insert(lines, string.sub(self.lines[i], 1, width))
+  end
+
   return {
-    width = math.min(cons.max_width, self.max_width),
-    height = math.min(cons.max_height, #self.lines),
-    lines = self.lines,
+    width = width,
+    height = height,
+    lines = lines,
   }
 end
 

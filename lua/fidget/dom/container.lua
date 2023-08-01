@@ -8,7 +8,6 @@ local M = {}
 ---@field vert      boolean       whether the main axis is vertical
 ---@field reverse   boolean       whether children are arranged in reverse order
 ---@field flex      nil          containers do not flex
----@field cache     SubBuffer[]  cached result of each child
 ---
 ---@alias Layout
 ---| '"leftright"' # lay out children left-to-right
@@ -63,7 +62,7 @@ local function update_node(cache, idx, node, cons)
   local result = node:update(cons)
 
   -- Manage cached result
-  if result == nil then
+  if result == true then
     -- Child told us that nothing changed; use cached result
     return cache[idx], false
   else
@@ -74,7 +73,7 @@ local function update_node(cache, idx, node, cons)
 end
 
 ---@param cons Constraint
----@return SubBuffer?
+---@return SubBuffer|true
 function Container:update(cons)
   local vert, reverse = self.vert, self.reverse
   local rem_width, rem_height = cons.max_width, cons.max_height
@@ -95,12 +94,15 @@ function Container:update(cons)
     if child.flex ~= nil then
       total_flex = total_flex + child.flex
     else
-      local result, child_dirty = update_node(self.cache, idx, child, {
+
+      local result, width, height = child:update{
         max_width = rem_width,
         max_height = rem_height,
         now = cons.now,
         delta = cons.delta
-      })
+      }
+
+      -- TODO: WIP
 
       dirty = dirty or child_dirty
 
@@ -129,7 +131,7 @@ function Container:update(cons)
     -- Optimization: nothing changed with non-flex children, so don't even
     -- bother polling the flex children. Return nil to let the parent re-use our
     -- cached value.
-    return nil
+    return true
   end
 
   -- Then, evaluate remaining (flex) children, distributing remaining dimension

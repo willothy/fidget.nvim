@@ -30,10 +30,12 @@ local box = require("fidget.dom.box")
 ---@field update  UpdateFn      method invoked to generate each frame
 ---@field flex    number?       determines distribution of remaining space
 ---
----@alias UpdateFn fun(self, cons: Constraint): SubBuffer?
---- The type signature of DOMNodes' update() method. When an UpdateFn returns
---- nil, the container should use the SubBuffer returned by the previous call
---- (which should be cached).
+---@alias UpdateFn fun(self, cons: Constraint): SubBuffer|true, number?, number?
+--- The type signature of DOMNodes' update() method. An UpdateFn may return true
+--- to indicate that it would have otherwise returned the exact same SubBuffer
+--- as before, so a cached value should be used. In this case, the UpdateFn
+--- should also return two additional values, corresponding to the height and
+--- width of the cached SubBuffer, which can be used for layouts.
 
 ---@class Constraint
 --- Constraint for rendering SubBuffer at each timestep.
@@ -42,6 +44,7 @@ local box = require("fidget.dom.box")
 ---@field max_height  number    the maximum number of lines
 ---@field now         number    the timestamp of the current frame
 ---@field delta       number    the time that has passed since the last frame
+---@field force       boolean   if true, update() cannot rely on cache (must return SubBuffer)
 
 ---@class SubBuffer
 --- A partially-rendered frame produced by DOMNodes at each timestep.

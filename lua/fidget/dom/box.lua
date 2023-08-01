@@ -30,7 +30,7 @@ end
 --- cache of its parent when its child returns nil.
 ---
 ---@param cons  Constraint
----@return      SubBuffer?
+---@return      SubBuffer|true
 function Box:update(cons)
   local max_width, max_height = cons.max_width, cons.max_height
 
