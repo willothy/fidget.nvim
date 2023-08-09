@@ -5,7 +5,7 @@ local M = {}
 ---@param cursor_x  number    horizontal offset from which to start rendering in buffer
 ---@param cursor_y  number    vertical offset from which to start rendering in buffer
 ---@param buffer    string[]  pre-allocated buffer to render into
----@param sub       SubBuffer what to render from
+---@param sub       SubFrame what to render from
 ---@param padding   string    character to pad empty space with
 local function do_render(cursor_x, cursor_y, buffer, sub, padding)
   if sub.width == 0 or sub.height == 0 then
@@ -43,9 +43,9 @@ local function do_render(cursor_x, cursor_y, buffer, sub, padding)
   end
 end
 
---- Render a SubBuffer into a text canvas, i.e., an array of strings.
+--- Render a SubFrame into a text canvas, i.e., an array of strings.
 ---
----@param sub     SubBuffer   what to render
+---@param sub     SubFrame   what to render
 ---@param padding string      character to pad empty space with
 ---@return        string[]    what is rendered
 function M.render(sub, padding)

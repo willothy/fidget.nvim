@@ -3,9 +3,9 @@ local M = {}
 local strings = require("fidget.sub.strings")
 local buffer = require("fidget.sub.buffer")
 
---- Render a SubBuffer into a text canvas, i.e., an array of strings.
+--- Render a SubFrame into a text canvas, i.e., an array of strings.
 ---
----@param sub     SubBuffer   what to render
+---@param sub     SubFrame   what to render
 ---@param padding string?     character to pad empty space with (default = " ")
 ---@return        string[]    what is rendered
 function M.render_to_strings(sub, padding)

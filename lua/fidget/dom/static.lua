@@ -26,19 +26,19 @@ function Static:new(lines, flex)
   return setmetatable({ lines = lines, max_width = max_width, flex = flex }, self)
 end
 
---- Construct SubBuffer given constraints.
+--- Construct SubFrame given constraints.
 ---
---- This implementation directly point the lines of the constructed SubBuffer at
+--- This implementation directly point the lines of the constructed SubFrame at
 --- self.lines, to avoid constructing new objects or copying things around.
 --- Doing so is ok because a Static node outputs the same lines every time, and
 --- the backend shouldn't modify sub.lines while rendering, only read from it.
 ---
---- Also note that it's ok if the width of the constructed SubBuffer is smaller
+--- Also note that it's ok if the width of the constructed SubFrame is smaller
 --- than self.max_width, because it's the job of the backend to only take as
 --- many as sub.width characters from each line.
 ---
 ---@param cons  Constraint
----@return      SubBuffer|true
+---@return      SubFrame|true
 function Static:update(cons)
   local height = math.min(cons.max_height, #self.lines)
   local width = math.min(cons.max_width, self.max_width)

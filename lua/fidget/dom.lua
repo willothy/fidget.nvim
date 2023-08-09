@@ -8,7 +8,7 @@ local box = require("fidget.dom.box")
 --- Elements in a Fidget layout tree.
 ---
 --- Each DOMNode is equipped with an update() method that, at each timestep, is
---- invoked with some Constraint and returns a partially-rendered SubBuffer.
+--- invoked with some Constraint and returns a partially-rendered SubFrame.
 --- DOMNodes that contain children should recursively invoke the update()
 --- methods of those children during this update phase.
 ---
@@ -30,53 +30,52 @@ local box = require("fidget.dom.box")
 ---@field update  UpdateFn      method invoked to generate each frame
 ---@field flex    number?       determines distribution of remaining space
 ---
----@alias UpdateFn fun(self, cons: Constraint): SubBuffer|true, number?, number?
+---@alias UpdateFn fun(self, cons: Constraint): SubFrame|true, number, number
 --- The type signature of DOMNodes' update() method. An UpdateFn may return true
---- to indicate that it would have otherwise returned the exact same SubBuffer
---- as before, so a cached value should be used. In this case, the UpdateFn
---- should also return two additional values, corresponding to the height and
---- width of the cached SubBuffer, which can be used for layouts.
+--- to indicate that it would have otherwise returned the exact same SubFrame
+--- as before, so a cached value should be used. The UpdateFn should also
+--- return two additional values, indicating the intended width and height of
+--- the returned SubFrame.
 
 ---@class Constraint
---- Constraint for rendering SubBuffer at each timestep.
+--- Constraint for rendering SubFrame at each timestep.
 ---
 ---@field max_width   number    the maximum rendered line length
 ---@field max_height  number    the maximum number of lines
 ---@field now         number    the timestamp of the current frame
 ---@field delta       number    the time that has passed since the last frame
----@field force       boolean   if true, update() cannot rely on cache (must return SubBuffer)
+---@field force       boolean   if true, update() cannot rely on cache (must return SubFrame)
 
----@class SubBuffer
---- A partially-rendered frame produced by DOMNodes at each timestep.
+---@class SubFrame
+--- A partially-rendered buffer produced by DOMNodes at each timestep.
 ---
---- A SubBuffer represents a virtual rectangular area that can be rendered into
---- a 2-dimensional textual buffer by some backend.
+--- A SubFrame represents some virtual rectangular area that can be rendered
+--- into a 2-dimensional text buffer by some backend. It is a nested data
+--- structure that may contain other SubFrames, laid out horizontally or
+--- vertically.
 ---
---- A SubBuffer may directly contain content (when lines is defined), or other
---- SubBuffers that are layed out horizontally (when hframe is defined) or
---- vertically (when vframe is defined).
+--- Its data is contained in the array part and indexed by numbers; the contents
+--- of that array depend on which kind of SubFrame this is, as indicated by the
+--- value of the "type" field:
 ---
---- Exactly one field should be defined among lines, vframe, and hframe.
+--- - nil:      This is a text buffer, i.e., an array of strings.
+--- - "hframe": This is an array of SubFrames, laid out horizontally.
+--- - "vframe": This is an array of SubFrames, laid out vertically.
 ---
---- The dimensions of the virtual rectangular area are solely determined by the
---- width and height fields, and populated by the contents rendered from lines,
---- vframe, or hframe. Note that actual length of any line (or the combined
---- virtual length rendered from vframe or hframe) may be smaller than or exceed
---- the width field of the SubBuffer; the backend is responsible for padding or
---- truncating the displayed output accordingly. The same is true for the height
---- of the SubBuffer. (The SubBuffer is specified this way to encourage DOM
---- nodes to reuse rendered textual content and reduce allocations; they need
---- only adjust the height and width according to changing constraints.)
+--- If the SubFrame is an hframe or a vframe, it will also have two other
+--- fields, "width" and "height"; for some index i, the SubFrame at index [i]
+--- is constrained to be ["width"][i] wide and ["height"][i] high.
 ---
---- If either width or height are 0, then the backend should ignore the
---- SubBuffer during rendering, and should not attempt to read from lines,
---- vframe, or hframe (since those may be undefined).
+--- Note that the dimensions of each SubFrame are only constrained by its
+--- containing frame; on its own, a SubFrame is unconstrained. This means that
+--- the contents of an inner SubFrame may be larger than its container; in this
+--- case, the inner content will be truncated. (This design is meant to
+--- encourage DOM nodes to reuse content and reduce allocations.)
 ---
----@field width   number          horizontal dimension of the frame
----@field height  number          vertical dimension of the frame
----@field lines   string[]?       array of lines of rendered text
----@field vframe  SubBuffer[]?    vertically stacked results
----@field hframe  SubBuffer[]?    horizontally stacked results
+---@field type ("hframe"|"vframe")?   nil if this SubFrame is a text buffer
+---@field [number] (string|SubFrame)  indexes strings if ["type"] == nil; SubFrames otherwise
+---@field width number[]?             defined if ["type"] ~= nil
+---@field height number[]?            defined if ["type"] ~= nil
 
 ---@class RowOptions
 ---@field [number]  DOMNode                     children to be laid out horizontally

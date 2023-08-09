@@ -5,7 +5,7 @@ local M = {}
 ---
 ---@param cursor_x  number    horizontal offset from which to start rendering in buffer
 ---@param cursor_y  number    vertical offset from which to start rendering in buffer
----@param sub       SubBuffer what to render from
+---@param sub       SubFrame what to render from
 ---@param bufnum    number    number of Vim buffer to render to
 local function do_render(cursor_x, cursor_y, sub, bufnum)
   if sub.width == 0 or sub.height == 0 then
@@ -28,8 +28,8 @@ local function do_render(cursor_x, cursor_y, sub, bufnum)
   end
 end
 
---- Render a SubBuffer to a Vim buffer
----@param sub SubBuffer   what to render
+--- Render a SubFrame to a Vim buffer
+---@param sub SubFrame   what to render
 ---@param bufnum number   buffer to render to
 function M.render(sub, bufnum)
   do_render(0, 0, sub, bufnum)

@@ -41,7 +41,7 @@ function Container:new(children, layout)
   local my_children, cache = {}, {}
 
   for i, _ in ipairs(children) do
-    -- Initialize cache with empty SubBuffers.
+    -- Initialize cache with empty SubFrames.
     cache[i] = { height = 0, width = 0 }
     -- Construct local array of children
     my_children[i] = children[i]
@@ -50,30 +50,8 @@ function Container:new(children, layout)
   return setmetatable({ children = my_children, vert = vert, reverse = reverse, cache = cache }, self)
 end
 
---- Run the update function of a child node.
----
----@param cache SubBuffer[]
----@param idx number
----@param node DOMNode
 ---@param cons Constraint
----@return SubBuffer, boolean
-local function update_node(cache, idx, node, cons)
-  -- Run update function
-  local result = node:update(cons)
-
-  -- Manage cached result
-  if result == true then
-    -- Child told us that nothing changed; use cached result
-    return cache[idx], false
-  else
-    -- Child produced updated result; update cache, and mark ourselves dirty
-    cache[idx] = result
-    return result, true
-  end
-end
-
----@param cons Constraint
----@return SubBuffer|true
+---@return SubFrame|true
 function Container:update(cons)
   local vert, reverse = self.vert, self.reverse
   local rem_width, rem_height = cons.max_width, cons.max_height
@@ -88,23 +66,34 @@ function Container:update(cons)
   -- These will be accumulated as we iterate
   local total_flex, final_height, final_width, frame, dirty = 0, 0, 0, {}, false
 
+  for idx = 1, #self.children do
+    -- Pre-allocate frame to ensure all elements are allocated in array portion
+    frame[idx] = true
+  end
+
   -- First, evaluate all the non-flex children (and count up flex)
   for idx = begin, limit, step do
     local child = self.children[idx]
     if child.flex ~= nil then
       total_flex = total_flex + child.flex
     else
-
-      local result, width, height = child:update{
+      local result, width, height = child:update {
         max_width = rem_width,
         max_height = rem_height,
         now = cons.now,
-        delta = cons.delta
+        delta = cons.delta,
+        force = cons.force,
       }
 
-      -- TODO: WIP
+      if result == true then
+        -- No update from child
+        width = math.min(width, rem_width)
+        width = math.min(width, rem_width)
+      else
+        -- Child updated
+        dirty = true
 
-      dirty = dirty or child_dirty
+      end
 
       result.width = math.min(result.width, rem_width)
       result.height = math.min(result.height, rem_height)
