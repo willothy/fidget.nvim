@@ -160,6 +160,131 @@ function M.format_progress(msg)
   }
 end
 
+local NEXT_ID = 0
+local PREFIX = "fidget-user-"
+
+local function next_token()
+  NEXT_ID = NEXT_ID + 1
+  return PREFIX .. NEXT_ID
+end
+
+---@class ProgressHandle: ProgressMessage  A handle for a progress message, reactive to changes
+---@field cancel fun(self: ProgressHandle) Cancel the task
+---@field finish fun(self: ProgressHandle) Mark the task as complete
+---@field report fun(self: ProgressHandle, props: table) Update one or more properties of the progress message
+
+---Create a new progress message, and return a handle to it for updating.
+---The handle is a reactive object, so you can update its properties and the
+---message will be updated accordingly. You can also use the `report` method to
+---update multiple properties at once.
+---
+---Example:
+---
+---```lua
+---local progress = require("fidget.progress")
+---
+---local handle = progress.create({
+---  title = "My Task",
+---  message = "Doing something...",
+---  lsp_name = "my_fake_lsp",
+---  percentage = 0,
+---})
+---
+----- You can update properties directly and the
+----- progress message will be updated accordingly
+---handle.message = "Doing something else..."
+---
+----- Or you can use the `report` method to bulk-update
+----- properties.
+---handle:report({
+---  title = "The task status changed"
+---  message = "Doing another thing...",
+---  percentage = 50,
+---})
+---
+----- You can also cancel the task (errors if not cancellable)
+---handle:cancel()
+---
+----- Or mark it as complete (updates percentage to 100 automatically)
+---handle:finish()
+---````
+---
+---@param message ProgressMessage
+---@return ProgressHandle
+function M.create(message)
+  message = message or {}
+
+  local data = vim.deepcopy(message)
+  data.token = data.token or next_token()
+  data.message = data.message or ""
+  data.title = data.title or ""
+  data.lsp_name = data.lsp_name or "progress"
+  data.lsp_id = data.lsp_id or -1
+
+  -- Ensure that the task isn't updated after it's finished
+  local done = false
+
+  -- Load the notification config
+  M.load_config(data)
+
+  -- Initial update (for begin)
+  notification.notify(M.format_progress(data))
+
+  local handle = setmetatable({}, {
+    __newindex = function(_, k, v)
+      if k == "token" then
+        error(string.format("attempted to modify read-only field '%s'", k))
+      end
+      data[k] = v
+      if not done then
+        notification.notify(M.format_progress(data))
+      end
+    end,
+    __index = function(_, k)
+      return data[k]
+    end,
+  })
+
+  function handle:cancel()
+    if done then
+      return
+    end
+    if data.cancellable then
+      data.done = true
+      notification.notify(M.format_progress(data))
+      done = true
+    else
+      error("attempted to cancel non-cancellable progress")
+    end
+  end
+
+  function handle:finish()
+    if done then
+      return
+    end
+    data.done = true
+    if data.percentage ~= nil then
+      data.percentage = 100
+    end
+    notification.notify(M.format_progress(data))
+    done = true
+  end
+
+  function handle:report(props)
+    if done then
+      return
+    end
+    for k, v in pairs(props) do
+      if k ~= "token" and k ~= "kind" then
+        data[k] = v
+      end
+    end
+    notification.notify(M.format_progress(data))
+  end
+
+  return handle
+end
+
 --- Poll for progress messages to feed to the fidget notifications subsystem.
 M.poller = poll.Poller {
   name = "progress",
